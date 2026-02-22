@@ -91,3 +91,19 @@ def get_similar_cars(brand, vehicle_id, limit=3):
     except Exception as e:
         st.error(f"Error fetching similar cars: {e}")
         return []
+
+
+def get_all_brands():
+    """Retrieve all unique brands from the Vehicle table, sorted alphabetically."""
+    query = "SELECT DISTINCT brand FROM Vehicle ORDER BY brand ASC"
+    try:
+        conn = get_db_connection()
+        cur = conn.cursor()
+        cur.execute(query)
+        rows = cur.fetchall()
+        brands = [r['brand'] for r in rows]
+        conn.close()
+        return brands
+    except Exception as e:
+        st.error(f"Error fetching brands: {e}")
+        return []

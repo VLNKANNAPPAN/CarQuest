@@ -6,3 +6,6 @@ pandas
 Pillow
 google-generativeai
 python-dotenv
+tqdm
+fake-useragent
+openai

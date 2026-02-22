@@ -94,19 +94,19 @@ if page == "Home":
 
     with c1:
         with st.container(border=True):
-            st.image("https://media.istockphoto.com/id/1167555914/photo/modern-red-suv-car-in-garage-with-lights-turned-on.jpg?s=612x612&w=0&k=20&c=DRKL152y8f0nxgcF-jfLAwM69YtcsYt86XHDEnCssI0=", use_column_width=True)
+            st.image("https://media.istockphoto.com/id/1167555914/photo/modern-red-suv-car-in-garage-with-lights-turned-on.jpg?s=612x612&w=0&k=20&c=DRKL152y8f0nxgcF-jfLAwM69YtcsYt86XHDEnCssI0=", use_container_width=True)
             st.markdown("#### Premium SUVs")
             st.caption("Command the road with spacious interiors and powerful performance.")
             
     with c2:
         with st.container(border=True):
-            st.image("https://media.istockphoto.com/id/1264045166/photo/car-driving-on-a-road.jpg?s=612x612&w=0&k=20&c=vRYLFjs6XMBZv0rl6Pbk77AlZvFe9RC6gSZuqUe_jXs=", use_column_width=True)
+            st.image("https://media.istockphoto.com/id/1264045166/photo/car-driving-on-a-road.jpg?s=612x612&w=0&k=20&c=vRYLFjs6XMBZv0rl6Pbk77AlZvFe9RC6gSZuqUe_jXs=", use_container_width=True)
             st.markdown("#### Executive Sedans")
             st.caption("Experience unmatched comfort and driving dynamics for the city.")
 
     with c3:
         with st.container(border=True):
-            st.image("https://media.istockphoto.com/id/1486018004/photo/a-happy-handsome-adult-male-charging-his-expensive-electric-car-before-leaving-his-house-for.jpg?s=612x612&w=0&k=20&c=rY6SHolsHcNtS_y23F0DgAe0arV6KZ_c3-k9r7PNP9Q=", use_column_width=True)
+            st.image("https://media.istockphoto.com/id/1486018004/photo/a-happy-handsome-adult-male-charging-his-expensive-electric-car-before-leaving-his-house-for.jpg?s=612x612&w=0&k=20&c=rY6SHolsHcNtS_y23F0DgAe0arV6KZ_c3-k9r7PNP9Q=", use_container_width=True)
             st.markdown("#### Electric Vehicles")
             st.caption("Embrace the future with zero emissions and instant torque.")
 
@@ -193,12 +193,19 @@ elif page == "Filters":
                      "Jaipur", "Lucknow", "Mumbai", "Patna", "Pune"]
         )
     with col2:
-        brand = st.multiselect("Select Brand", options=["Maruti", "Hyundai", "Tata", "Toyota"])
+        brands = db.get_all_brands()
+        selected_brands = st.multiselect("Select Brand", options=brands)
     with col3:
-        car_type = st.multiselect(
-            "Select Car Type",
-            options=["Sedan Cars", "Hatchback Cars", "SUV Cars", "MPV Cars"]
-        )
+        # Fetching car types dynamically as well
+        try:
+            conn = db.get_db_connection()
+            rows = conn.execute("SELECT DISTINCT type FROM Vehicle ORDER BY type ASC").fetchall()
+            car_types = [r['type'] for r in rows]
+            conn.close()
+        except:
+            car_types = ["Sedan Cars", "Hatchback Cars", "SUV Cars", "MPV Cars"]
+            
+        selected_types = st.multiselect("Select Car Type", options=car_types)
 
     variant = st.text_input("Variant (Optional)")
     price_range = st.slider("Price Range (in Lakhs)", 0, 150, (5, 50))
@@ -216,7 +223,7 @@ elif page == "Filters":
 
     # Build parameterized query via filters module
     final_query, query_params = filters.build_filter_query(
-        city=city, brand=brand, car_type=car_type, variant=variant,
+        city=city, brand=selected_brands, car_type=selected_types, variant=variant,
         price_range=price_range, fuel=fuel,
         displacement_range=displacement_range, bhp_range=bhp_range,
         torque_range=torque_range, mileage_range=mileage_range,
