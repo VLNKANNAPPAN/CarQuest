@@ -94,19 +94,19 @@ if page == "Home":
 
     with c1:
         with st.container(border=True):
-            st.image("https://media.istockphoto.com/id/1167555914/photo/modern-red-suv-car-in-garage-with-lights-turned-on.jpg?s=612x612&w=0&k=20&c=DRKL152y8f0nxgcF-jfLAwM69YtcsYt86XHDEnCssI0=", use_container_width=True)
+            st.image("https://media.istockphoto.com/id/1167555914/photo/modern-red-suv-car-in-garage-with-lights-turned-on.jpg?s=612x612&w=0&k=20&c=DRKL152y8f0nxgcF-jfLAwM69YtcsYt86XHDEnCssI0=", use_column_width="always")
             st.markdown("#### Premium SUVs")
             st.caption("Command the road with spacious interiors and powerful performance.")
             
     with c2:
         with st.container(border=True):
-            st.image("https://media.istockphoto.com/id/1264045166/photo/car-driving-on-a-road.jpg?s=612x612&w=0&k=20&c=vRYLFjs6XMBZv0rl6Pbk77AlZvFe9RC6gSZuqUe_jXs=", use_container_width=True)
+            st.image("https://media.istockphoto.com/id/1264045166/photo/car-driving-on-a-road.jpg?s=612x612&w=0&k=20&c=vRYLFjs6XMBZv0rl6Pbk77AlZvFe9RC6gSZuqUe_jXs=", use_column_width="always")
             st.markdown("#### Executive Sedans")
             st.caption("Experience unmatched comfort and driving dynamics for the city.")
 
     with c3:
         with st.container(border=True):
-            st.image("https://media.istockphoto.com/id/1486018004/photo/a-happy-handsome-adult-male-charging-his-expensive-electric-car-before-leaving-his-house-for.jpg?s=612x612&w=0&k=20&c=rY6SHolsHcNtS_y23F0DgAe0arV6KZ_c3-k9r7PNP9Q=", use_container_width=True)
+            st.image("https://media.istockphoto.com/id/1486018004/photo/a-happy-handsome-adult-male-charging-his-expensive-electric-car-before-leaving-his-house-for.jpg?s=612x612&w=0&k=20&c=rY6SHolsHcNtS_y23F0DgAe0arV6KZ_c3-k9r7PNP9Q=", use_column_width="always")
             st.markdown("#### Electric Vehicles")
             st.caption("Embrace the future with zero emissions and instant torque.")
 

@@ -2,10 +2,10 @@ import os
 import re
 from openai import OpenAI
 from dotenv import load_dotenv
-
+import streamlit as st
 load_dotenv()
 
-GROQ_API_KEY = os.getenv("groq_api", "")
+GROQ_API_KEY = st.secrets["groq_api"]
 
 client = None
 if GROQ_API_KEY:
