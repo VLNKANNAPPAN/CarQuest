@@ -1,49 +1,29 @@
 import streamlit as st
-import mysql.connector
 import tempfile
 import pandas as pd
 from PIL import Image
-import google.generativeai as genai
 import base64
 import os
-import dotenv
-dotenv.load_dotenv()
+from dotenv import load_dotenv
+load_dotenv()
+
+import db
+import ai
+import filters
 # --- CONFIG ---
 st.set_page_config(page_title="Car-Quest ✨", layout="wide")
 
 # --- STYLE ---
 st.markdown("""
 <style>
-    .main { background-color: #f5f7fa; padding: 20px; }
-    .title-style { font-size: 3em; color: #0a3d62; text-align: center; margin-bottom: 1em; }
-    .sidebar .sidebar-content { background-color: #dff9fb; }
-    .stButton>button { background-color: #0a3d62; color: white; }
+    .main { padding: 20px; }
+    .title-style { font-size: 3em; text-align: center; margin-bottom: 1em; }
 </style>
 """, unsafe_allow_html=True)
 
 # --- SIDEBAR NAVIGATION ---
 page = st.sidebar.radio("Navigation", ["Home", "QuestAI", "Filters", "Compare"])
 
-# --- SSL CERTIFICATE SETUP ---
-ssl_ca_content = os.getenv("AIVEN_CA_PEM")
-
-with tempfile.NamedTemporaryFile(delete=False, mode="w", suffix=".pem") as tmp_file:
-    tmp_file.write(ssl_ca_content)
-    ssl_ca_path = tmp_file.name
-
-# --- DB CONNECTION FUNCTION ---
-def get_db_connection():
-    conn = mysql.connector.connect(
-        host=os.getenv("MYSQL_HOST"),
-        user=os.getenv("MYSQL_USER"),
-        password=os.getenv("MYSQL_PASSWORD"),
-        database=os.getenv("MYSQL_DATABASE"),
-        port=int(os.getenv("MYSQL_PORT")),
-        ssl_ca=ssl_ca_path,
-        connection_timeout=30,
-        use_pure=True
-    )
-    return conn
 
 def bool_to_label(val):
     """Converts 1/0 (or True/False) to a user-friendly 'True'/'False'."""
@@ -53,130 +33,6 @@ def bool_to_label(val):
         return "False"
     return str(val)  # Fallback for other data types
 
-# --- SQL GENERATION USING GEMINI ---
-genai.configure(api_key=os.getenv("PPI"))
-model = genai.GenerativeModel("gemini-1.5-flash")
-
-def convert_to_sql(user_query):
-    prompt = f'''
-You are an expert SQL generator specializing in vehicle databases. Translate the following natural language query into MySQL queries using the provided schema.
-
-Database: defaultdb
-
-Schema definitions
-# Vehicle table (basic info)
-create_vehicle_table = """
-CREATE TABLE IF NOT EXISTS Vehicle (
-  vehicle_id INT AUTO_INCREMENT PRIMARY KEY,
-  brand VARCHAR(50) NOT NULL,
-  model VARCHAR(50) NOT NULL,
-  variant VARCHAR(255),
-  type VARCHAR(50),
-  price DECIMAL(20,2),
-  url VARCHAR(255),
-  image_link VARCHAR(255)
-);
-"""
-
-# Engine table (engine details)
-create_engine_table = """
-CREATE TABLE IF NOT EXISTS Engine (
-  engine_id INT AUTO_INCREMENT PRIMARY KEY,
-  vehicle_id INT NOT NULL,
-  fuel VARCHAR(20),
-  displacement INT,
-  no_of_cylinders FLOAT,
-  bhp_value INT,
-  bhp_rpm FLOAT,
-  torque_value FLOAT,
-  torque_rpm FLOAT,
-  FOREIGN KEY (vehicle_id) REFERENCES Vehicle(vehicle_id)
-);
-"""
-
-# Transmission table (transmission details)
-create_transmission_table = """
-CREATE TABLE IF NOT EXISTS Transmission (
-  transmission_id INT AUTO_INCREMENT PRIMARY KEY,
-  vehicle_id INT NOT NULL,
-  transmission VARCHAR(50),
-  gearbox INT,
-  drive_type VARCHAR(50),
-  FOREIGN KEY (vehicle_id) REFERENCES Vehicle(vehicle_id)
-);
-"""
-
-# Performance table (mileage and capacity)
-create_performance_table = """
-CREATE TABLE IF NOT EXISTS Performance (
-  performance_id INT AUTO_INCREMENT PRIMARY KEY,
-  vehicle_id INT NOT NULL,
-  mileage FLOAT,
-  capacity FLOAT,
-  FOREIGN KEY (vehicle_id) REFERENCES Vehicle(vehicle_id)
-);
-"""
-
-# Dimensions table (boot space, seating capacity, wheel base)
-create_dimensions_table = """
-CREATE TABLE IF NOT EXISTS Dimensions (
-  dimension_id INT AUTO_INCREMENT PRIMARY KEY,
-  vehicle_id INT NOT NULL,
-  boot_space FLOAT,
-  seating_capacity INT,
-  wheel_base FLOAT,
-  FOREIGN KEY (vehicle_id) REFERENCES Vehicle(vehicle_id)
-);
-"""
-
-# Chassis table (brakes and tyre details)
-create_chassis_table = """
-CREATE TABLE IF NOT EXISTS Chassis (
-  chassis_id INT AUTO_INCREMENT PRIMARY KEY,
-  vehicle_id INT NOT NULL,
-  front_brake VARCHAR(50),
-  rear_brake VARCHAR(50),
-  tyre_size VARCHAR(50),
-  tyre_type VARCHAR(50),
-  FOREIGN KEY (vehicle_id) REFERENCES Vehicle(vehicle_id)
-);
-"""
-
-# Features table (additional features as booleans and extras)
-create_features_table = """
-CREATE TABLE IF NOT EXISTS Features (
-  feature_id INT AUTO_INCREMENT PRIMARY KEY,
-  vehicle_id INT NOT NULL,
-  cruise_control BOOLEAN,
-  parking_sensors VARCHAR(20),
-  keyLess_entry BOOLEAN,
-  engine_start_stop_button BOOLEAN,
-  LED_headlamps BOOLEAN,
-  no_of_airbags INT,
-  rear_camera BOOLEAN,
-  hill_assist BOOLEAN,
-  FOREIGN KEY (vehicle_id) REFERENCES Vehicle(vehicle_id)
-);
-"""
-
-# Price table (separate table for per-city prices)
-create_price_table = """
-CREATE TABLE IF NOT EXISTS Price (
-  price_id INT AUTO_INCREMENT PRIMARY KEY,
-  vehicle_id INT NOT NULL,
-  city VARCHAR(50) NOT NULL,
-  price DECIMAL(20,2),
-  FOREIGN KEY (vehicle_id) REFERENCES Vehicle(vehicle_id)
-);
-
-
-Now convert the following query to SQL:
-"{user_query}"
-    '''
-    response = model.generate_content(prompt)
-    sql_output = response.text
-    return sql_output.split('```')[1][4:] if '```sql' in sql_output else sql_output
-
 # --- EXPORT FUNCTION ---
 def export_to_csv(data):
     csv = data.to_csv(index=False).encode('utf-8')
@@ -184,188 +40,116 @@ def export_to_csv(data):
     href = f'<a href="data:file/csv;base64,{b64}" download="car_results.csv">Download CSV File</a>'
     st.markdown(href, unsafe_allow_html=True)
 
-# --- HELPER FUNCTION: FETCH DETAILED VEHICLE INFO ---
-def get_vehicle_details(vehicle_id):
-    """
-    This query may return multiple rows if the vehicle has multiple city-price entries.
-    We will pivot or separate city/price data so we don't get repeated info in the other tabs.
-    """
-    query = f"""
-    SELECT v.vehicle_id,
-           v.brand, v.model, v.variant, v.type, v.price AS base_price,
-           e.fuel, e.displacement, e.no_of_cylinders, e.bhp_value, e.bhp_rpm, e.torque_value, e.torque_rpm,
-           t.transmission, t.gearbox, t.drive_type,
-           pf.mileage, pf.capacity,
-           d.boot_space, d.seating_capacity, d.wheel_base,
-           c.front_brake, c.rear_brake, c.tyre_size, c.tyre_type,
-           f.cruise_control, f.parking_sensors, f.keyLess_entry, f.engine_start_stop_button, f.LED_headlamps,
-           f.no_of_airbags, f.rear_camera, f.hill_assist,
-           p.city, p.price AS city_price
-    FROM Vehicle v
-    LEFT JOIN Engine e ON v.vehicle_id = e.vehicle_id
-    LEFT JOIN Transmission t ON v.vehicle_id = t.vehicle_id
-    LEFT JOIN Performance pf ON v.vehicle_id = pf.vehicle_id
-    LEFT JOIN Dimensions d ON v.vehicle_id = d.vehicle_id
-    LEFT JOIN Chassis c ON v.vehicle_id = c.vehicle_id
-    LEFT JOIN Features f ON v.vehicle_id = f.vehicle_id
-    LEFT JOIN Price p ON v.vehicle_id = p.vehicle_id
-    WHERE v.vehicle_id = {vehicle_id}
-    """
-    try:
-        conn = get_db_connection()
-        cursor = conn.cursor(dictionary=True)
-        cursor.execute(query)
-        rows = cursor.fetchall()
-        cursor.close()
-        conn.close()
-        if not rows:
-            return None
-
-        # Convert to DataFrame
-        df = pd.DataFrame(rows)
-
-        # Separate city/price data from the rest
-        # (1) vehicle_info: columns that are the same for each row
-        # (2) city_prices: multiple city entries
-        city_prices = df[['city','city_price']].drop_duplicates()
-        vehicle_info = df.drop(columns=['city','city_price']).drop_duplicates(subset=['vehicle_id'])
-
-        # Return them in a dictionary
-        return {
-            "vehicle_info": vehicle_info.reset_index(drop=True),
-            "city_prices": city_prices.reset_index(drop=True)
-        }
-    except Exception as e:
-        st.error(f"Error fetching details for vehicle {vehicle_id}: {e}")
-        return None
-
-# --- HELPER FUNCTION: FETCH SIMILAR CARS ---
-def get_similar_cars(brand, vehicle_id, limit=3):
-    """
-    Example: fetch up to 3 other cars of the same brand, ignoring the current vehicle_id.
-    Customize as needed for a more advanced recommendation.
-    """
-    query = f"""
-    SELECT vehicle_id, brand, model, variant, type, image_link
-    FROM Vehicle
-    WHERE brand = '{brand}'
-      AND vehicle_id <> {vehicle_id}
-    LIMIT {limit}
-    """
-    try:
-        conn = get_db_connection()
-        cursor = conn.cursor(dictionary=True)
-        cursor.execute(query)
-        results = cursor.fetchall()
-        cursor.close()
-        conn.close()
-        return results
-    except Exception as e:
-        st.error(f"Error fetching similar cars: {e}")
-        return []
-
 # --- PAGE: HOME ---
 if page == "Home":
     # Hero Section
     st.markdown("""
         <style>
         .hero {
-            background-color: #f0f2f6;
-            padding: 2rem;
+            padding: 3rem 1rem;
             border-radius: 1rem;
             text-align: center;
+            background: linear-gradient(135deg, #f5f7fa 0%, #e4e8f0 100%);
+            margin-bottom: 2rem;
         }
         .hero h1 {
-            font-size: 3rem;
-            color: #f63366;
+            font-size: 3.5rem;
+            color: #1a1a1a;
+            font-weight: 800;
+            margin-bottom: 0.5rem;
         }
         .hero p {
-            font-size: 1.2rem;
-            color: #333333;
+            font-size: 1.25rem;
+            color: #4a5568;
+            max-width: 600px;
+            margin: 0 auto;
+        }
+        .section-title {
+            font-size: 1.5rem;
+            font-weight: 600;
+            color: #2d3748;
+            margin-top: 2rem;
+            margin-bottom: 1rem;
         }
         </style>
         <div class="hero">
-            <h1>🚘 CarQuest</h1>
-            <p>Explore. Compare. Discover the best cars in India.</p>
+            <h1>CarQuest</h1>
+            <p>Your intelligent platform to explore, compare, and discover the perfect vehicle.</p>
         </div>
     """, unsafe_allow_html=True)
 
-    # st.image(
-    #     "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcQaxbUUFuNP8A3uA4z8k8uI2rRufeLha5qatQ&s",
-    #     use_column_width=True,
-    #     caption="Drive into the future with confidence."
-    # )
+    # Key Statistics / Quick Facts
+    col_stat1, col_stat2, col_stat3, col_stat4 = st.columns(4)
+    with col_stat1:
+        st.metric(label="Vehicles Listed", value="250+")
+    with col_stat2:
+        st.metric(label="Brands", value="15+")
+    with col_stat3:
+        st.metric(label="Cities Covered", value="10")
+    with col_stat4:
+        st.metric(label="AI Integration", value="Active")
+
+    st.markdown("<div class='section-title'>Featured Categories</div>", unsafe_allow_html=True)
+    c1, c2, c3 = st.columns(3)
+
+    with c1:
+        with st.container(border=True):
+            st.image("https://media.istockphoto.com/id/1167555914/photo/modern-red-suv-car-in-garage-with-lights-turned-on.jpg?s=612x612&w=0&k=20&c=DRKL152y8f0nxgcF-jfLAwM69YtcsYt86XHDEnCssI0=", use_column_width=True)
+            st.markdown("#### Premium SUVs")
+            st.caption("Command the road with spacious interiors and powerful performance.")
+            
+    with c2:
+        with st.container(border=True):
+            st.image("https://media.istockphoto.com/id/1264045166/photo/car-driving-on-a-road.jpg?s=612x612&w=0&k=20&c=vRYLFjs6XMBZv0rl6Pbk77AlZvFe9RC6gSZuqUe_jXs=", use_column_width=True)
+            st.markdown("#### Executive Sedans")
+            st.caption("Experience unmatched comfort and driving dynamics for the city.")
+
+    with c3:
+        with st.container(border=True):
+            st.image("https://media.istockphoto.com/id/1486018004/photo/a-happy-handsome-adult-male-charging-his-expensive-electric-car-before-leaving-his-house-for.jpg?s=612x612&w=0&k=20&c=rY6SHolsHcNtS_y23F0DgAe0arV6KZ_c3-k9r7PNP9Q=", use_column_width=True)
+            st.markdown("#### Electric Vehicles")
+            st.caption("Embrace the future with zero emissions and instant torque.")
 
     st.markdown("---")
 
-    # Explore Section
-    st.subheader("🔍 Explore Cars by Category")
-    col1, col2, col3 = st.columns(3)
+    col_left, col_right = st.columns([1, 1])
 
-    with col1:
-        st.image("https://media.istockphoto.com/id/1167555914/photo/modern-red-suv-car-in-garage-with-lights-turned-on.jpg?s=612x612&w=0&k=20&c=DRKL152y8f0nxgcF-jfLAwM69YtcsYt86XHDEnCssI0=", caption="SUVs")
-    with col2:
-        st.image("https://media.istockphoto.com/id/1264045166/photo/car-driving-on-a-road.jpg?s=612x612&w=0&k=20&c=vRYLFjs6XMBZv0rl6Pbk77AlZvFe9RC6gSZuqUe_jXs=", caption="Sedans")
-    with col3:
-        st.image("https://media.istockphoto.com/id/1486018004/photo/a-happy-handsome-adult-male-charging-his-expensive-electric-car-before-leaving-his-house-for.jpg?s=612x612&w=0&k=20&c=rY6SHolsHcNtS_y23F0DgAe0arV6KZ_c3-k9r7PNP9Q=", caption="Electric Cars")
+    with col_left:
+        st.markdown("<div class='section-title'>Top Picks This Month</div>", unsafe_allow_html=True)
+        with st.container(border=True):
+            st.markdown("**Hyundai Creta 2024**<br><span style='color:gray; font-size:0.9em;'>Best Overall SUV</span>", unsafe_allow_html=True)
+            st.divider()
+            st.markdown("**Tata Nexon EV**<br><span style='color:gray; font-size:0.9em;'>Top Electric Compact</span>", unsafe_allow_html=True)
+            st.divider()
+            st.markdown("**Honda City Hybrid**<br><span style='color:gray; font-size:0.9em;'>Premium Sedan Choice</span>", unsafe_allow_html=True)
+            st.divider()
+            st.markdown("**Maruti Fronx**<br><span style='color:gray; font-size:0.9em;'>Value for Money Crossover</span>", unsafe_allow_html=True)
 
-    st.markdown("---")
-
-    # Top Picks Section
-    st.subheader("🌟 Top Picks This Month")
-    st.markdown("""
-    - 🥇 **Hyundai Creta 2024** - Best Overall SUV
-    - 🥈 **Tata Nexon EV** - Top Electric Car Under ₹15L
-    - 🥉 **Honda City Hybrid** - Premium Sedan Choice
-    - 🚀 **Maruti Fronx** - Value for Money Crossover
-    """)
-
-    st.markdown("---")
-
-    # Knowledge Base Section
-    st.subheader("🧠 Car Buying Guide & Resources")
-    with st.expander("🚗 How to Choose the Right Car"):
-        st.write("""
-            Consider your needs: City vs Highway, Fuel type, Boot space, Safety features, and of course, Budget.
-        """)
-    with st.expander("⚡ EV vs Petrol vs Diesel"):
-        st.write("""
-            EVs are cost-effective in the long run and environment-friendly. Petrol cars are ideal for city use, diesel for longer distances.
-        """)
-    with st.expander("💰 Understanding Car Pricing"):
-        st.write("""
-            On-road price includes ex-showroom price, RTO charges, insurance, and optional accessories.
-        """)
+    with col_right:
+        st.markdown("<div class='section-title'>Latest Industry Insights</div>", unsafe_allow_html=True)
+        with st.container(border=True):
+            st.markdown("[Evaluating Cars Under ₹10 Lakhs](https://www.autocarindia.com/)")
+            st.caption("A comprehensive review of budget-friendly performance.")
+            st.divider()
+            st.markdown("[The Rise of High-Mileage EVs](https://www.carwale.com/)")
+            st.caption("Analyzing battery technology and real-world ranges.")
+            st.divider()
+            st.markdown("[Reliability Metrics in India](https://www.team-bhp.com/)")
+            st.caption("Long-term ownership reports and maintenance costs.")
+            st.divider()
+            st.markdown("[2025 Market Launch Previews](https://www.zigwheels.com/)")
+            st.caption("What to expect from major manufacturers next year.")
 
     st.markdown("---")
 
-    # Articles & Trends
-    st.subheader("📰 Trending Articles")
-    st.markdown("""
-    - 🚗 [Top Cars Under ₹10 Lakhs](https://www.autocarindia.com/)
-    - 🔋 [Best Mileage Electric Vehicles](https://www.carwale.com/)
-    - 🛠️ [Top 10 Reliable Cars in India](https://www.team-bhp.com/)
-    - 🌐 [Upcoming Car Launches 2025](https://www.zigwheels.com/)
-    """)
-
-    st.markdown("---")
-
-    # Teaser for Comparison Tool
-    st.markdown("### 🆚 Ready to Compare?")
-    st.info("Head to the **Compare** tab in the sidebar to see detailed specs and pricing of your favorite models!")
-
-    # Future Scope/CTA
-    st.markdown("---")
-    st.subheader("💬 Coming Soon...")
-    st.markdown("We're working on:")
-    st.markdown("""
-    - 🤖 AI-Powered Car Suggestion Bot
-    - 🗺️ Location-Based Price Estimator
-    - 📊 Ownership Cost Calculator
-    - 🧾 EMI Planning Tool
-    """)
-
-    st.success("CarQuest is your all-in-one car discovery companion. Stay tuned!")
+    st.markdown("<div class='section-title'>Platform Capabilities</div>", unsafe_allow_html=True)
+    f1, f2, f3 = st.columns(3)
+    with f1:
+        st.info("**Advanced Filtering**\n\nFilter vehicles by over 15 parameters including Engine, Transmission, and Features.")
+    with f2:
+        st.info("**Side-by-Side Comparison**\n\nDirectly compare variants across different brands to find your perfect match.")
+    with f3:
+        st.warning("**QuestAI** \n\nLeverage our Gemini-powered AI to convert natural language queries into instant vehicle insights.")
 
 # --- PAGE: ASK IN ENGLISH ---
 elif page == "QuestAI":
@@ -374,15 +158,17 @@ elif page == "QuestAI":
     if st.button("Search"):
         if user_input:
             with st.spinner("Processing your request..."):
-                mysql_query = convert_to_sql(user_input)
-                st.code(mysql_query, language='sql')
+                mysql_query = ai.convert_to_sql(user_input)
+                with st.expander("🔍 View SQL Query"):
+                    st.code(mysql_query, language='sql')
                 try:
-                    conn = get_db_connection()
-                    cursor = conn.cursor(dictionary=True)
+                    conn = db.get_db_connection()
+                    cursor = conn.cursor()
                     cursor.execute(mysql_query)
-                    results = cursor.fetchall()
+                    rows = cursor.fetchall()
                     cursor.close()
                     conn.close()
+                    results = [dict(r) for r in rows]
                     if results:
                         st.success("Results:")
                         df = pd.DataFrame(results)
@@ -428,67 +214,27 @@ elif page == "Filters":
         transmission_type = st.multiselect("Transmission", options=["Manual", "Automatic"])
         sort_by = st.radio("Sort Results By", options=["Price", "BHP", "Mileage"], index=0)
 
-    # Build filter conditions
-    filters = []
-    filters.append(f"p.city = '{city}'")
-    filters.append(f"p.price BETWEEN {price_range[0]*100000} AND {price_range[1]*100000}")
-    if brand:
-        filters.append("v.brand IN (" + ", ".join(f"'{b}'" for b in brand) + ")")
-    if car_type:
-        filters.append("v.type IN (" + ", ".join(f"'{ct}'" for ct in car_type) + ")")
-    if variant:
-        filters.append(f"v.variant LIKE '%{variant}%'")
-    if fuel:
-        filters.append("e.fuel IN (" + ", ".join(f"'{f}'" for f in fuel) + ")")
-    filters.append(f"e.displacement BETWEEN {displacement_range[0]} AND {displacement_range[1]}")
-    filters.append(f"e.bhp_value BETWEEN {bhp_range[0]} AND {bhp_range[1]}")
-    filters.append(f"e.torque_value BETWEEN {torque_range[0]} AND {torque_range[1]}")
-    filters.append(f"pf.mileage BETWEEN {mileage_range[0]} AND {mileage_range[1]}")
-    if seating_capacity:
-        filters.append("d.seating_capacity IN (" + ", ".join(str(s) for s in seating_capacity) + ")")
-    if transmission_type:
-        filters.append("t.transmission IN (" + ", ".join(f"'{t}'" for t in transmission_type) + ")")
+    # Build parameterized query via filters module
+    final_query, query_params = filters.build_filter_query(
+        city=city, brand=brand, car_type=car_type, variant=variant,
+        price_range=price_range, fuel=fuel,
+        displacement_range=displacement_range, bhp_range=bhp_range,
+        torque_range=torque_range, mileage_range=mileage_range,
+        seating_capacity=seating_capacity,
+        transmission_type=transmission_type,
+        sort_by=sort_by
+    )
 
-    where_clause = " AND ".join(filters)
+    with st.expander("🔍 View SQL Query"):
+        st.code(final_query, language='sql')
 
-    # Sorting clause
-    sort_clause = {
-        "Price": "p.price ASC",
-        "BHP": "e.bhp_value DESC",
-        "Mileage": "pf.mileage DESC"
-    }.get(sort_by, "p.price ASC")
-
-    final_query = f"""
-      SELECT DISTINCT
-          v.vehicle_id,
-          v.brand,
-          v.model,
-          v.variant,
-          v.type,
-          p.price,
-          v.image_link,
-          e.bhp_value,
-          pf.mileage
-      FROM Vehicle v
-      JOIN Price p ON v.vehicle_id = p.vehicle_id
-      JOIN Engine e ON v.vehicle_id = e.vehicle_id
-      JOIN Transmission t ON v.vehicle_id = t.vehicle_id
-      JOIN Performance pf ON v.vehicle_id = pf.vehicle_id
-      JOIN Dimensions d ON v.vehicle_id = d.vehicle_id
-      JOIN Features f ON v.vehicle_id = f.vehicle_id
-      WHERE {where_clause}
-      ORDER BY {sort_clause}
-      LIMIT 10
-    """
-
-    st.code(final_query, language='sql')
-
-    # Execute query and display results
+    # Execute and display results
     try:
-        conn = get_db_connection()
-        cursor = conn.cursor(dictionary=True)
-        cursor.execute(final_query)
-        results = cursor.fetchall()
+        conn = db.get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute(final_query, query_params)
+        rows = cursor.fetchall()
+        results = [dict(r) for r in rows]
         cursor.close()
         conn.close()
 
@@ -503,10 +249,16 @@ elif page == "Filters":
                     st.markdown(f"### {car['variant']} ({car['type']})")
                     cols = st.columns([1, 2])
                     with cols[0]:
-                        st.image(car["image_link"], width=250)
+                        if car.get("image_link"):
+                            try:
+                                st.image(car["image_link"], width=250)
+                            except Exception:
+                                st.write("🚗 No image available")
+                        else:
+                            st.write("🚗 No image available")
                     with cols[1]:
                         st.markdown(f"**Price:** ₹{int(car['price']):,}")
-                        details_data = get_vehicle_details(car["vehicle_id"])
+                        details_data = db.get_vehicle_details(car["vehicle_id"])
 
                         if details_data is not None:
                             vehicle_info = details_data["vehicle_info"]
@@ -625,7 +377,7 @@ elif page == "Filters":
                             # In your "Similar Cars" tab (tabs[7]):
                             with tabs[7]:
                                 st.write("**Similar Cars**")
-                                similar = get_similar_cars(row['brand'], row['vehicle_id'], limit=3)
+                                similar = db.get_similar_cars(row['brand'], row['vehicle_id'], limit=3)
                                 if similar:
                                     sim_cols = st.columns(len(similar))
                                     for i, sim_car in enumerate(similar):
@@ -652,21 +404,27 @@ elif page == "Compare":
 
     if brand1 and model1 and brand2 and model2:
         try:
-            conn = get_db_connection()
-            cursor = conn.cursor(dictionary=True)
+            conn = db.get_db_connection()
+            cursor = conn.cursor()
 
-            # Step 1: Fetch variants
+            # Step 1: Fetch variants using fuzzy case-insensitive matching
             fetch_variants_query = """
             SELECT vehicle_id, brand, model, variant
             FROM Vehicle
-            WHERE (LOWER(brand) = LOWER(%s) AND LOWER(model) = LOWER(%s))
-            OR (LOWER(brand) = LOWER(%s) AND LOWER(model) = LOWER(%s))
+            WHERE (brand LIKE ? AND model LIKE ?)
+               OR (brand LIKE ? AND model LIKE ?)
             """
-            cursor.execute(fetch_variants_query, (brand1, model1, brand2, model2))
+            b1_fuzzy = f"%{brand1.strip()}%"
+            m1_fuzzy = f"%{model1.strip()}%"
+            b2_fuzzy = f"%{brand2.strip()}%"
+            m2_fuzzy = f"%{model2.strip()}%"
+            
+            cursor.execute(fetch_variants_query, (b1_fuzzy, m1_fuzzy, b2_fuzzy, m2_fuzzy))
             variant_rows = cursor.fetchall()
 
-            car1_variants = [v for v in variant_rows if v['brand'] == brand1 and v['model'] == model1]
-            car2_variants = [v for v in variant_rows if v['brand'] == brand2 and v['model'] == model2]
+            # Cushion user errors in python matching by dropping case and white space
+            car1_variants = [v for v in variant_rows if brand1.lower().strip() in v['brand'].lower() and model1.lower().strip() in v['model'].lower()]
+            car2_variants = [v for v in variant_rows if brand2.lower().strip() in v['brand'].lower() and model2.lower().strip() in v['model'].lower()]
 
             st.subheader("✅ Select Variants to Compare")
 
@@ -696,7 +454,7 @@ elif page == "Compare":
                 LEFT JOIN Features f ON v.vehicle_id = f.vehicle_id
                 LEFT JOIN Price p1 ON v.vehicle_id = p1.vehicle_id AND p1.city = 'Chennai'
                 LEFT JOIN Price p2 ON v.vehicle_id = p2.vehicle_id AND p2.city = 'Mumbai'
-                WHERE v.variant = %s OR v.variant = %s
+                WHERE v.variant = ? OR v.variant = ?
                 """
 
                 cursor.execute(compare_query, (variant1, variant2))

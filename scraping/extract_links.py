@@ -108,11 +108,12 @@ user_agents = [
 ]
 
 
-extract_and_process_links(
-    html_file="data/html_selected.html",
-    base_url="https://cardekho.com",
-    intermediate_file="data/urls_intermediate.txt",
-    output_file="data/urls.txt",
-    num_links=75,
-    user_agents=user_agents
-)
+if __name__ == "__main__":
+    extract_and_process_links(
+        html_file="data/html_selected.html",
+        base_url="https://cardekho.com",
+        intermediate_file="data/urls_intermediate.txt",
+        output_file="data/urls.txt",
+        num_links=75,
+        user_agents=user_agents
+    )
